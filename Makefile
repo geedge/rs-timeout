@@ -58,6 +58,10 @@ timeout.o test-timeout.o:
 test-timeout: timeout.o test-timeout.o
 	@$(SHRC); echo_cmd $(CC) $(ALL_CPPFLAGS) $(ALL_CFLAGS) -o $@ timeout.o test-timeout.o
 
+timeout.so: timeout.c
+	@$(SHRC); echo_cmd $(CC) $(ALL_CFLAGS) -shared -o $(top_srcdir)/timeout.so $(top_srcdir)/timeout.c
+	
+
 .PHONY: clean clean~
 
 clean:
