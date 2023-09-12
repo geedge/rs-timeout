@@ -5,4 +5,4 @@
 *~
 *.so
 *.dSYM
-rs-timeout/target
+target
