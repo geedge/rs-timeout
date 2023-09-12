@@ -58,9 +58,13 @@ timeout.o test-timeout.o:
 test-timeout: timeout.o test-timeout.o
 	@$(SHRC); echo_cmd $(CC) $(ALL_CPPFLAGS) $(ALL_CFLAGS) -o $@ timeout.o test-timeout.o
 
-timeout.so: timeout.c
+so: timeout.c
 	@$(SHRC); echo_cmd $(CC) $(ALL_CFLAGS) -shared -o $(top_srcdir)/timeout.so $(top_srcdir)/timeout.c
-	
+
+install: so
+	@$(SHRC); \
+	echo_cmd cp $(top_srcdir)/timeout.so /usr/local/lib/libtimeout.so \
+		&& ldconfig
 
 .PHONY: clean clean~
 
