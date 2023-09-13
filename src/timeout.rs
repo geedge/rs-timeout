@@ -52,7 +52,7 @@ pub struct timeout_cb {
 
 // #[cfg(TIMEOUT_DISABLE_INTERVALS)]
 pub const TIMEOUT_INT: u32 = 1;
-pub const TIMEOUT_ABS: u32 = 2;
+pub const TIMEOUT_ABS: i32 = 2;
 
 // TODO 宏定义 TIMEOUT_INITIALIZER timeout_setcb
 
@@ -84,6 +84,27 @@ pub struct timeout {
     // #[cfg(TIMEOUT_DISABLE_RELATIVE_ACCESS)]
     pub timeouts: *mut timeouts, /* timeouts collection if member of */
 }
+
+impl Default for timeout {
+    fn default() -> Self {
+        timeout {
+            flags: 0,
+            expires: 0,
+            pending: null_mut(),
+            tqe: timeout_TAILQ_ENTRY {
+                tqe_next: null_mut(),
+                tqe_prev: null_mut(),
+            },
+            callback: timeout_cb {
+                fn_: None,
+                arg: null_mut(),
+            },
+            interval: 0,
+            timeouts: null_mut(),
+        }
+    }
+}
+
 #[link(name = "timeout")]
 extern "C" {
     /* initialize timeout structure (same as TIMEOUT_INITIALIZER) */
@@ -136,11 +157,15 @@ extern "C" {
     // TODO check FILE type
     pub fn timeouts_check(arg1: *mut timeouts, arg2: *mut FILE) -> bool;
 }
+extern "C" {
+    pub static mut stderr: *mut FILE;
+}
 
-pub const TIMEOUTS_PENDING: u32 = 16;
-pub const TIMEOUTS_EXPIRED: u32 = 32;
-pub const TIMEOUTS_ALL: u32 = 48;
-pub const TIMEOUTS_CLEAR: u32 = 64;
+
+pub const TIMEOUTS_PENDING: i32 = 16;
+pub const TIMEOUTS_EXPIRED: i32 = 32;
+pub const TIMEOUTS_ALL: i32 = 48;
+pub const TIMEOUTS_CLEAR: i32 = 64;
 
 // 原为 C 的宏定义 能转为 C 兼容函数
 #[no_mangle]
@@ -170,6 +195,18 @@ pub struct timeouts_it {
     pub i: c_uint,
     pub j: c_uint,
     pub to: *mut timeout,
+}
+
+impl Default for timeouts_it {
+    fn default() -> Self {
+        timeouts_it {
+            flags: 0,
+            pc: 0,
+            i: 0,
+            j: 0,
+            to: null_mut(),
+        }
+    }
 }
 
 /* return next timeout in pending wheel or expired queue. caller can delete
