@@ -1,4 +1,7 @@
-use std::{mem::{align_of, size_of, MaybeUninit}, ptr::addr_of};
+use std::{
+    mem::{align_of, size_of, MaybeUninit},
+    ptr::addr_of,
+};
 
 use crate::timeout::*;
 use std::ffi::CStr;
@@ -76,17 +79,16 @@ fn bindgen_test_layout_timeout_cb() {
 /// T I M E O U T  I N T E R F A C E S
 
 #[test]
-fn bindgen_test_layout_timeout__bindgen_ty_1() {
-    const UNINIT: MaybeUninit<timeout__bindgen_ty_1> =
-        MaybeUninit::uninit();
+fn bindgen_test_layout_timeout_TAILQ_ENTRY() {
+    const UNINIT: MaybeUninit<timeout_TAILQ_ENTRY> = MaybeUninit::uninit();
     let ptr = UNINIT.as_ptr();
     assert_eq!(
-        size_of::<timeout__bindgen_ty_1>(),
+        size_of::<timeout_TAILQ_ENTRY>(),
         16usize,
         concat!("Size of: ", stringify!(timeout__bindgen_ty_1))
     );
     assert_eq!(
-        align_of::<timeout__bindgen_ty_1>(),
+        align_of::<timeout_TAILQ_ENTRY>(),
         8usize,
         concat!("Alignment of ", stringify!(timeout__bindgen_ty_1))
     );
@@ -193,6 +195,72 @@ fn bindgen_test_layout_timeout() {
             stringify!(timeout),
             "::",
             stringify!(timeouts)
+        )
+    );
+}
+
+#[test]
+fn bindgen_test_layout_timeouts_it() {
+    const UNINIT: MaybeUninit<timeouts_it> = MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        size_of::<timeouts_it>(),
+        24usize,
+        concat!("Size of: ", stringify!(timeouts_it))
+    );
+    assert_eq!(
+        align_of::<timeouts_it>(),
+        8usize,
+        concat!("Alignment of ", stringify!(timeouts_it))
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).flags) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(timeouts_it),
+            "::",
+            stringify!(flags)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).pc) as usize - ptr as usize },
+        4usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(timeouts_it),
+            "::",
+            stringify!(pc)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).i) as usize - ptr as usize },
+        8usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(timeouts_it),
+            "::",
+            stringify!(i)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).j) as usize - ptr as usize },
+        12usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(timeouts_it),
+            "::",
+            stringify!(j)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).to) as usize - ptr as usize },
+        16usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(timeouts_it),
+            "::",
+            stringify!(to)
         )
     );
 }
