@@ -53,7 +53,7 @@ timeout.o: $(top_srcdir)/timeout.c
 test-timeout.o: $(top_srcdir)/test-timeout.c
 
 timeout.o test-timeout.o:
-	@$(SHRC); echo_cmd $(CC) $(ALL_CFLAGS) -c -o $@ $${top_srcdir}/$(@F:%.o=%.c) $(ALL_CPPFLAGS)
+	@$(SHRC); echo_cmd $(CC) $(ALL_CFLAGS) -c -g -o $@ $${top_srcdir}/$(@F:%.o=%.c) $(ALL_CPPFLAGS)
 
 test-timeout: timeout.o test-timeout.o
 	@$(SHRC); echo_cmd $(CC) $(ALL_CPPFLAGS) $(ALL_CFLAGS) -o $@ timeout.o test-timeout.o
