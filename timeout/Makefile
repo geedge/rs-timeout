@@ -58,6 +58,9 @@ timeout.o test-timeout.o:
 test-timeout: timeout.o test-timeout.o
 	@$(SHRC); echo_cmd $(CC) $(ALL_CPPFLAGS) $(ALL_CFLAGS) -o $@ timeout.o test-timeout.o
 
+static: timeout.o
+	@$(SHRC); echo_cmd ar rcs $(top_srcdir)/libtimeout.a $(top_srcdir)/timeout.o
+
 so: timeout.c
 	@$(SHRC); echo_cmd $(CC) $(ALL_CFLAGS) -shared -o $(top_srcdir)/timeout.so $(top_srcdir)/timeout.c
 
