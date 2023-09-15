@@ -10,6 +10,7 @@ use std::{
 };
 
 static mut n_failed: i32 = 0;
+const THE_END_OF_TIME: u64 = std::u64::MAX;
 
 macro_rules! DO {
     ($fn:expr) => {{
@@ -145,7 +146,8 @@ fn check_randomized(cfg: &rand_cfg) -> bool {
     );
 
     let (mut p_done, mut e_done, mut all_done) = (false, false, false);
-    let mut to: Option<&mut timeout> = None;
+    // let mut to: Option<&mut timeout> = None;
+    let mut to: *mut timeout = std::ptr::null_mut();
     let rel = cfg.relative;
 
     // 对应 done
@@ -347,13 +349,20 @@ fn check_randomized(cfg: &rand_cfg) -> bool {
     while now < cfg.end_at {
         let mut n_fired_this_time = 0;
 
-        // now 似乎超过 100 就不行
-        let first_at = unsafe { timeouts_timeout(tos.unwrap()) + now };
+        // test-timeout.c line 189
+        // timeouts_timeout 取到一定程度会返回 u64 最大值,
+        // c 语言中 max_u64 + now == now -1 ; 但 rust 会直接 panic;
+        let temp = unsafe { timeouts_timeout(tos.unwrap()) };
+        let first_at = match temp.checked_add(now) {
+            Some(v) => v,
+            None => now - 1, // 溢出则按照 C 语言执行结果处理 -1;
+        };
+
         let oldtime = now;
         let step = random_to(1, cfg.max_step);
-
         now += step;
-        if rel > 0 {
+
+        if rel != 0 {
             unsafe { timeouts_step(tos.unwrap(), step) };
         } else {
             unsafe { timeouts_update(tos.unwrap(), now) };
@@ -361,7 +370,7 @@ fn check_randomized(cfg: &rand_cfg) -> bool {
 
         for _i in 0..cfg.try_removing {
             let idx = random() % cfg.n_timeouts;
-            if !(fired[idx] > 0) {
+            if !(fired[idx] == 0) {
                 unsafe {
                     timeout_del(&mut t[idx]);
                 }
@@ -384,6 +393,7 @@ fn check_randomized(cfg: &rand_cfg) -> bool {
 
             let i = (to as usize - &t[0] as *const _ as usize) / std::mem::size_of::<timeout>();
             assert_eq!(&t[i] as *const _, to);
+
             if timeouts[i] > now {
                 /* shouldn't have happened yet */
                 cleanup(tos, t, timeouts, fired, found, deleted);
@@ -401,7 +411,7 @@ fn check_randomized(cfg: &rand_cfg) -> bool {
             }
             fired[i] += 1;
             n_fired_this_time += 1;
-            another = unsafe { timeouts_timeout(tos.unwrap()) } == 0;
+            another = (unsafe { timeouts_timeout(tos.unwrap()) } == 0);
         }
 
         if (n_fired_this_time != 0) && (first_at > now) {
@@ -414,14 +424,66 @@ fn check_randomized(cfg: &rand_cfg) -> bool {
             cleanup(tos, t, timeouts, fired, found, deleted);
             fail!();
         }
-        if !unsafe { timeouts_check(tos.unwrap(), stderr) } {
+        if unsafe { !timeouts_check(tos.unwrap(), stderr) } {
             cleanup(tos, t, timeouts, fired, found, deleted);
             fail!();
         }
-
-        // let first_at = unsafe { timeouts_timeout(tos.unwrap()) + now };
     }
 
+    // test-timout.c line 233
+    for i in 0..cfg.n_timeouts {
+        if fired[i] > 1 {
+            /* Nothing fired twice. */
+            cleanup(tos, t, timeouts, fired, found, deleted);
+            fail!();
+        }
+        if timeouts[i] <= now {
+            if (fired[i] == 0) && (deleted[i] == 0) {
+                cleanup(tos, t, timeouts, fired, found, deleted);
+                fail!();
+            }
+        } else {
+            if fired[i] != 0 {
+                cleanup(tos, t, timeouts, fired, found, deleted);
+                fail!();
+            }
+        }
+        if (fired[i] != 0) && (deleted[i] != 0) {
+            cleanup(tos, t, timeouts, fired, found, deleted);
+            fail!();
+        }
+        if cfg.finalize > 1 {
+            if !(fired[i] != 0) {
+                unsafe {
+                    timeout_del(&mut t[i]);
+                }
+            }
+        }
+    }
+
+    // test-timeout.c line 251
+    /* Now nothing more should fire between now and the end of time. */
+    if cfg.finalize > 0 {
+        unsafe { timeouts_update(tos.unwrap(), THE_END_OF_TIME) }
+        if cfg.finalize > 1 {
+            let tmpe = unsafe { timeouts_get(tos.unwrap()) };
+            if !tmpe.is_null() {
+                cleanup(tos, t, timeouts, fired, found, deleted);
+                fail!();
+            }
+            let mut _it = TIMEOUTS_IT_INITIALIZER(TIMEOUTS_ALL);
+            loop {
+                to = unsafe { timeouts_next(tos.unwrap(), &mut _it) };
+                if to.is_null() {
+                    break;
+                }
+                cleanup(tos, t, timeouts, fired, found, deleted);
+                fail!();
+            }
+        }
+    }
+
+    cleanup(tos, t, timeouts, fired, found, deleted);
     return false;
 }
 
@@ -445,7 +507,21 @@ fn main() {
         try_removing: 0,
         finalize: 2,
     };
-    // DO_N!(300, check_randomized(&cfg1));
+    DO_N!(300, check_randomized(&cfg1));
+
+    let cfg2 = rand_cfg {
+        min_timeout: 20,
+        max_timeout: 1000,
+        start_at: 5,
+        end_at: 100,
+        n_timeouts: 1000,
+        max_step: 5,
+        relative: 1,
+        try_removing: 0,
+        finalize: 2,
+    };
+    // TODO 470 行有判断失败
+    DO_N!(300, check_randomized(&cfg2));
 
     let cfg2b = rand_cfg {
         min_timeout: 20,
@@ -458,5 +534,57 @@ fn main() {
         try_removing: 0,
         finalize: 1,
     };
-    DO_N!(300,check_randomized(&cfg2b));
+    DO_N!(300, check_randomized(&cfg2b));
+
+    let cfg2c = rand_cfg {
+        min_timeout: 20,
+        max_timeout: 1000,
+        start_at: 10,
+        end_at: 100,
+        n_timeouts: 1000,
+        max_step: 5,
+        relative: 1,
+        try_removing: 0,
+        finalize: 0,
+    };
+    DO_N!(300, check_randomized(&cfg2c));
+
+    let cfg3 = rand_cfg {
+        min_timeout: 2000,
+        max_timeout: 1 << 50,
+        start_at: 100,
+        end_at: 1 << 49,
+        n_timeouts: 1000,
+        max_step: 1 << 31,
+        relative: 0,
+        try_removing: 0,
+        finalize: 2,
+    };
+    DO_N!(10, check_randomized(&cfg3));
+
+    let cfg3b = rand_cfg {
+        min_timeout: 1 << 50,
+        max_timeout: 1 << 52,
+        start_at: 100,
+        end_at: 1 << 53,
+        n_timeouts: 1000,
+        max_step: 1 << 48,
+        relative: 0,
+        try_removing: 0,
+        finalize: 2,
+    };
+    DO_N!(10, check_randomized(&cfg3b));
+
+    let cfg4 = rand_cfg {
+        min_timeout: 2000,
+        max_timeout: 1 << 30,
+        start_at: 100,
+        end_at: 1 << 26,
+        n_timeouts: 10000,
+        max_step: 1 << 16,
+        relative: 0,
+        try_removing: 0,
+        finalize: 2,
+    };
+    DO_N!(10, check_randomized(&cfg4));
 }
