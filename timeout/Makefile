@@ -14,7 +14,7 @@ all:
 top_srcdir = .
 top_builddir = .
 
-CFLAGS = -O2 -march=native -g -Wall -Wextra -Wno-unused-parameter -Wno-unused-function
+CFLAGS = -O0 -march=native -g -Wall -Wextra -Wno-unused-parameter -Wno-unused-function
 SOFLAGS = $$(auto_soflags)
 LIBS = $$(auto_libs)
 
