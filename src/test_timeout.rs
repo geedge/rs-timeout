@@ -487,6 +487,125 @@ fn check_randomized(cfg: &rand_cfg) -> bool {
     return false;
 }
 
+struct intervals_cfg<'a> {
+    timeouts: &'a [timeout_t],
+    n_timeouts: usize,
+    start_at: timeout_t,
+    end_at: timeout_t,
+    skip: timeout_t,
+}
+
+fn check_intervals(cfg: &intervals_cfg) -> bool {
+    let (mut i, rv) = (0, 0);
+    let mut err = 0 as usize;
+
+    let mut to: *mut timeout = std::ptr::null_mut();
+    let mut t: Vec<timeout> = vec![timeout::default(); cfg.n_timeouts as usize];
+    let mut fired: Vec<u32> = vec![0; cfg.n_timeouts];
+    let mut tos = unsafe { Some(timeouts_open(0, &mut err)) };
+
+    let mut now = cfg.start_at;
+
+    // 对应 done
+    let cleanup = |t: Vec<timeout>, tos: Option<*mut timeouts>, fired: Vec<u32>| {
+        if t.is_empty() {
+            drop(t);
+            // unsafe { free(t) };
+        }
+        if let Some(tos) = tos {
+            unsafe { timeouts_close(tos) };
+        }
+        if !fired.is_empty() {
+            drop(fired);
+            // unsafe { free(fired) };
+        }
+    };
+
+    if t.is_empty() || tos.is_none() || fired.is_empty() {
+        cleanup(t, tos, fired);
+        fail!();
+    }
+
+    unsafe { timeouts_update(tos.unwrap(), now) };
+    // test-timeout.c line 300
+    for i in 0..cfg.n_timeouts {
+        if &t[i] as *const _ != unsafe { timeout_init(&mut t[i], TIMEOUT_INT) } as *const _ {
+            cleanup(t, tos, fired);
+            fail!();
+        }
+        if unsafe { timeout_pending(&mut t[i]) || timeout_expired(&mut t[i]) } {
+            cleanup(t, tos, fired);
+            fail!();
+        }
+
+        unsafe { timeouts_add(tos.unwrap(), &mut t[i], cfg.timeouts[i]) }
+
+        if unsafe { (!timeout_pending(&mut t[i])) || timeout_expired(&mut t[i]) } {
+            cleanup(t, tos, fired);
+            fail!();
+        }
+    }
+    // test-timeout.c line 315
+    while now < cfg.end_at {
+        let mut delay = unsafe { timeouts_timeout(tos.unwrap()) };
+        if (cfg.skip != 0) && (delay < cfg.skip) {
+            delay = cfg.skip;
+        }
+        unsafe { timeouts_step(tos.unwrap(), delay) }
+        now += delay;
+
+        loop {
+            let to = unsafe { timeouts_get(tos.unwrap()) };
+            if to.is_null() {
+                break;
+            }
+            i = (to as usize - &t[0] as *const _ as usize) / std::mem::size_of::<timeout>();
+            assert_eq!(&t[i] as *const _, to);
+
+            fired[i] += 1;
+
+            if 0 != (unsafe { (*to).expires - cfg.start_at } % cfg.timeouts[i]) {
+                cleanup(t, tos, fired);
+                fail!();
+            }
+            if unsafe { (*to).expires <= now } {
+                cleanup(t, tos, fired);
+                fail!();
+            }
+            if unsafe { (*to).expires > now + cfg.timeouts[i] } {
+                cleanup(t, tos, fired);
+                fail!();
+            }
+        }
+        if unsafe { !timeouts_check(tos.unwrap(), stderr) } {
+            cleanup(t, tos, fired);
+            fail!();
+        }
+    }
+
+    let duration = now - cfg.start_at;
+    for i in 0..cfg.n_timeouts {
+        if cfg.skip != 0 {
+            if fired[i] as u64 > (duration / cfg.timeouts[i]) {
+                cleanup(t, tos, fired);
+                fail!();
+            }
+        } else {
+            if fired[i] as u64 != (duration / cfg.timeouts[i]) {
+                println!("{} != {}", fired[i], duration / cfg.timeouts[i]);
+                cleanup(t, tos, fired);
+                fail!();
+            }
+        }
+        if unsafe { ! timeout_pending(&mut t[i]) } {
+            cleanup(t, tos, fired);
+            fail!();
+        }
+    }
+
+    return false;
+}
+
 #[test]
 fn main() {
     unsafe {
@@ -586,4 +705,53 @@ fn main() {
         finalize: 2,
     };
     DO_N!(10, check_randomized(&cfg4));
+
+    const primes: [u64; 25] = [
+        2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89,
+        97,
+    ];
+    const factors_of_1337: [u64; 4] = [1, 7, 191, 1337];
+    const multiples_of_five: [u64; 10] = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50];
+
+    let icfg1 = intervals_cfg {
+        timeouts: &primes,
+        n_timeouts: primes.len(),
+        start_at: 50,
+        end_at: 5322,
+        skip: 0,
+    };
+    DO!(check_intervals(&icfg1));
+
+    let icfg2 = intervals_cfg {
+        timeouts: &factors_of_1337,
+        n_timeouts: factors_of_1337.len(),
+        start_at: 50,
+        end_at: 50000,
+        skip: 0,
+    };
+    DO!(check_intervals(&icfg2));
+
+    let icfg3 = intervals_cfg {
+        timeouts: &multiples_of_five,
+        n_timeouts: multiples_of_five.len(),
+        start_at: 49,
+        end_at: 5333,
+        skip: 0,
+    };
+    DO!(check_intervals(&icfg3));
+
+    let icfg4 = intervals_cfg {
+        timeouts: &primes,
+        n_timeouts: primes.len(),
+        start_at: 50,
+        end_at: 5322,
+        skip: 16,
+    };
+    DO!(check_intervals(&icfg4));
+
+    if unsafe { n_failed } != 0 {
+        println!("{} tests failed", unsafe { n_failed });
+    } else {
+        println!("OK");
+    }
 }
