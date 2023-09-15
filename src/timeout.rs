@@ -51,7 +51,7 @@ pub struct timeout_cb {
 /// T I M E O U T  I N T E R F A C E S
 
 // #[cfg(TIMEOUT_DISABLE_INTERVALS)]
-pub const TIMEOUT_INT: u32 = 1;
+pub const TIMEOUT_INT: i32 = 1;
 pub const TIMEOUT_ABS: i32 = 2;
 
 // TODO 宏定义 TIMEOUT_INITIALIZER timeout_setcb
