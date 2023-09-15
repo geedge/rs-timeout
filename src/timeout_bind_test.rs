@@ -3,7 +3,7 @@ use std::{
     ptr::addr_of,
 };
 
-use crate::timeout::*;
+use crate::timeout_bind::*;
 use std::ffi::CStr;
 
 #[cfg(test)]

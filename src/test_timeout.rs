@@ -1,8 +1,8 @@
 use libc::free;
 use rand::Rng;
 
-use crate::timeout::timeout_version;
-use crate::timeout::*;
+use crate::timeout_bind::timeout_version;
+use crate::timeout_bind::*;
 use std::{
     ffi::CStr,
     io::{self, Write},
