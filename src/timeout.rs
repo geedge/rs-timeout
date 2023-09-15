@@ -1,6 +1,6 @@
 use std::ptr::null_mut;
 
-use libc::{c_char, c_int, c_uint, c_void, FILE};
+use libc::{c_char, c_int, c_uint, c_void, FILE, c_ulonglong};
 
 // TODO 检查条件编译选项
 // 目前暂时全部注释掉
@@ -12,7 +12,7 @@ pub const TIMEOUT_V_REL: u32 = 538313254;
 pub const TIMEOUT_V_ABI: u32 = 538313252;
 pub const TIMEOUT_V_API: u32 = 538313254;
 
-#[link(name = "timeout")]
+
 extern "C" {
     pub fn timeout_version() -> c_int;
     pub fn timeout_vendor() -> *const c_char;
@@ -32,7 +32,7 @@ pub const TIMEOUT_mHZ: u64 = 1000;
 pub const TIMEOUT_uHZ: u64 = 1000000;
 pub const TIMEOUT_nHZ: u64 = 1000000000;
 
-pub type timeout_t = u64;
+pub type timeout_t = c_ulonglong;
 pub type timeout_error_t = usize;
 
 /// C A L L B A C K  I N T E R F A C E
@@ -56,12 +56,6 @@ pub const TIMEOUT_ABS: i32 = 2;
 
 // TODO 宏定义 TIMEOUT_INITIALIZER timeout_setcb
 
-// 原定义在 timeout.c
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct timeout_list {
-    pub _address: u8,
-}
 // 来自 TAILQ_ENTRY 宏
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -105,13 +99,13 @@ impl Default for timeout {
     }
 }
 
-#[link(name = "timeout")]
+
 extern "C" {
     /* initialize timeout structure (same as TIMEOUT_INITIALIZER) */
     pub fn timeout_init(arg1: *mut timeout, arg2: c_int) -> *mut timeout;
 }
 // #[cfg(TIMEOUT_DISABLE_RELATIVE_ACCESS)]
-#[link(name = "timeout")]
+
 extern "C" {
     /* true if on timing wheel, false otherwise */
     pub fn timeout_pending(arg1: *mut timeout) -> bool;
@@ -123,13 +117,29 @@ extern "C" {
 
 /// T I M I N G  W H E E L  I N T E R F A C E S
 
+// 原定义在 timeout.c line 206 | TAILQ_HEAD(timeout_list, timeout);
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct timeout_list {
+    pub tqh_first: *mut timeout,
+    pub tqh_last: *mut *mut timeout,
+}
+
+// for timeouts
+const WHEEL_LEN: usize = 64; // timeout.c line 132 | (1U << WHEEL_BIT ) ,WHEEL_BIT = 6
+const WHEEL_NUM: usize = 4;
+pub type wheel_t = u64;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct timeouts {
-    _unused: [u8; 0],
+    pub wheel: [[timeout_list; WHEEL_LEN]; WHEEL_NUM],
+    pub expired: timeout_list,
+    pub pending: [wheel_t; WHEEL_NUM],
+    pub curtime: timeout_t,
+    pub hertz: timeout_t,
 }
 
-#[link(name = "timeout")]
+
 extern "C" {
     /* open a new timing wheel, setting optional HZ (for float conversions) */
     pub fn timeouts_open(arg1: timeout_t, arg2: *mut timeout_error_t) -> *mut timeouts;
@@ -157,10 +167,10 @@ extern "C" {
     // TODO check FILE type
     pub fn timeouts_check(arg1: *mut timeouts, arg2: *mut FILE) -> bool;
 }
+
 extern "C" {
     pub static mut stderr: *mut FILE;
 }
-
 
 pub const TIMEOUTS_PENDING: i32 = 16;
 pub const TIMEOUTS_EXPIRED: i32 = 32;
@@ -214,10 +224,27 @@ impl Default for timeouts_it {
  * wheel. in particular, caller SHOULD NOT delete any other timeout as that
  * could invalidate cursor state and trigger a use-after-free.
  */
-#[link(name = "timeout")]
+// #[link(name = "timeout")]
 extern "C" {
     pub fn timeouts_next(arg1: *mut timeouts, arg2: *mut timeouts_it) -> *mut timeout;
 }
+
+/*
+ * Calculate the interval our caller can wait before needing to process
+ * events.
+ */
+
+//  extern "C" {
+//      pub fn timeouts_int(T: *mut timeouts) -> timeout_t;
+//  }
+//  pub fn timeouts_timeout(t: *mut timeouts) -> timeout_t {
+//      unsafe {
+//          if !((*t).expired.tqh_first.is_null()) {
+//              return 0;
+//          }
+//          timeouts_int(t)
+//      }
+//  }
 
 // TODO: 宏定义 TIMEOUTS_FOREACH
 
