@@ -520,7 +520,6 @@ fn main() {
         try_removing: 0,
         finalize: 2,
     };
-    // TODO 470 行有判断失败
     DO_N!(300, check_randomized(&cfg2));
 
     let cfg2b = rand_cfg {
