@@ -100,6 +100,7 @@ impl Drop for Timeout {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TimeoutSItFlag {
     PENDING = TIMEOUTS_PENDING as isize,
     EXPIRED = TIMEOUTS_EXPIRED as isize,
@@ -110,6 +111,18 @@ pub enum TimeoutSItFlag {
 impl From<TimeoutSItFlag> for i32 {
     fn from(flag: TimeoutSItFlag) -> Self {
         flag as i32
+    }
+}
+
+impl TimeoutSItFlag {
+    pub fn new(flag: i32) -> Self {
+        match flag {
+            TIMEOUTS_PENDING => TimeoutSItFlag::PENDING,
+            TIMEOUTS_EXPIRED => TimeoutSItFlag::EXPIRED,
+            TIMEOUTS_ALL => TimeoutSItFlag::ALL,
+            TIMEOUTS_CLEAR => TimeoutSItFlag::CLEAR,
+            _ => TimeoutSItFlag::ALL,
+        }
     }
 }
 
@@ -276,5 +289,30 @@ mod tests {
         tos.update_time_int(10); // tos.now = 109
         assert!(!timeout.is_pending());
         assert!(timeout.is_expired());
+    }
+
+    #[test]
+    fn test_timeout_sit_flag_into_i32() {
+        let pending = TimeoutSItFlag::PENDING;
+        let expired = TimeoutSItFlag::EXPIRED;
+        let all = TimeoutSItFlag::ALL;
+        let clear = TimeoutSItFlag::CLEAR;
+
+        assert_eq!(i32::from(pending), TIMEOUTS_PENDING);
+        assert_eq!(i32::from(expired), TIMEOUTS_EXPIRED);
+        assert_eq!(i32::from(all), TIMEOUTS_ALL);
+        assert_eq!(i32::from(clear), TIMEOUTS_CLEAR);
+
+        assert_eq!(TimeoutSItFlag::new(TIMEOUTS_PENDING), pending);
+        assert_eq!(TimeoutSItFlag::new(TIMEOUTS_EXPIRED), expired);
+        assert_eq!(TimeoutSItFlag::new(TIMEOUTS_ALL), all);
+        assert_eq!(TimeoutSItFlag::new(TIMEOUTS_CLEAR), clear);
+        assert_eq!(TimeoutSItFlag::new(123), all);
+    }
+
+    #[test]
+    fn test_timeout_sit_new() {
+        let sit = TimeoutSIt::new(TimeoutSItFlag::PENDING);
+        assert!(sit.is_ok());
     }
 }
