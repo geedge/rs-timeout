@@ -44,7 +44,7 @@ pub type timeout_error_t = usize;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct timeout_cb {
-    pub fn_: Option<unsafe extern "C" fn()>,
+    pub fn_ptr: Option<extern "C" fn(arg: *mut c_void)>,
     pub arg: *mut c_void,
 }
 
@@ -91,7 +91,7 @@ impl Default for timeout {
                 tqe_prev: null_mut(),
             },
             callback: timeout_cb {
-                fn_: None,
+                fn_ptr: None,
                 arg: null_mut(),
             },
             interval: 0,
@@ -132,11 +132,11 @@ pub type wheel_t = u64;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct timeouts {
-    // pub wheel: [[timeout_list; WHEEL_LEN]; WHEEL_NUM],
-    // pub expired: timeout_list,
-    // pub pending: [wheel_t; WHEEL_NUM],
-    // pub curtime: timeout_t,
-    // pub hertz: timeout_t,
+    pub wheel: [[timeout_list; WHEEL_LEN]; WHEEL_NUM],
+    pub expired: timeout_list,
+    pub pending: [wheel_t; WHEEL_NUM],
+    pub curtime: timeout_t,
+    pub hertz: timeout_t,
 }
 
 extern "C" {

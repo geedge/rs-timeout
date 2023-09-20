@@ -55,7 +55,7 @@ fn bindgen_test_layout_timeout_cb() {
         concat!("Alignment of ", stringify!(timeout_cb))
     );
     assert_eq!(
-        unsafe { addr_of!((*ptr).fn_) as usize - ptr as usize },
+        unsafe { addr_of!((*ptr).fn_ptr) as usize - ptr as usize },
         0usize,
         concat!(
             "Offset of field: ",
