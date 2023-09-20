@@ -101,34 +101,28 @@ impl Drop for Timeout {
 }
 
 pub enum TimeoutSItFlag {
-    PENDING,
-    EXPIRED,
-    ALL,
-    CLEAR,
+    PENDING = TIMEOUTS_PENDING as isize,
+    EXPIRED = TIMEOUTS_EXPIRED as isize,
+    ALL = TIMEOUTS_ALL as isize,
+    CLEAR = TIMEOUTS_CLEAR as isize,
 }
 // as i32
 impl From<TimeoutSItFlag> for i32 {
     fn from(flag: TimeoutSItFlag) -> Self {
-        match flag {
-            TimeoutSItFlag::PENDING => TIMEOUTS_PENDING,
-            TimeoutSItFlag::EXPIRED => TIMEOUTS_EXPIRED,
-            TimeoutSItFlag::ALL => TIMEOUTS_ALL,
-            TimeoutSItFlag::CLEAR => TIMEOUTS_CLEAR,
-        }
+        flag as i32
     }
 }
 
 pub struct TimeoutSIt {
-    raw: NonNull<*mut timeouts_it>,
+    raw: NonNull<timeouts_it>,
 }
 
 impl TimeoutSIt {
     /// flag has 4 value: PENDING, EXPIRED, ALL, CLEAR
     fn new(flags: TimeoutSItFlag) -> Result<TimeoutSIt, &'static str> {
-        let mut instance = timeouts_it::default();
-        TIMEOUTS_IT_INIT(&mut instance, flags as i32);
-        let raw = NonNull::new(&mut instance as *mut timeouts_it as *mut *mut timeouts_it)
-            .ok_or("Failed to create TimeoutSIt")?;
+        let mut instance = Box::into_raw(Box::new(timeouts_it::default()));
+        TIMEOUTS_IT_INIT(instance, flags as i32);
+        let raw = NonNull::new(instance).ok_or("Failed to create TimeoutSIt")?;
         Ok(TimeoutSIt { raw })
     }
 }
@@ -228,8 +222,7 @@ impl TimeoutManager {
     }
     /// return next timeout as timeout_sit requested, or NULL if none
     pub fn next_timeout(&mut self, timeout_sit: &TimeoutSIt) -> Option<Timeout> {
-        let to: *mut timeout =
-            unsafe { timeouts_next(self.get_raw(), timeout_sit.raw.as_ref().clone()) };
+        let to: *mut timeout = unsafe { timeouts_next(self.get_raw(), timeout_sit.raw.as_ptr()) };
         if to.is_null() {
             return None;
         }
