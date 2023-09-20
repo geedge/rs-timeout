@@ -7,7 +7,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use libc::free;
+use libc::{c_void, free};
 
 use crate::timeout_bind::*;
 
@@ -33,6 +33,26 @@ impl TimeoutType {
             TIMEOUT_ABS => TimeoutType::ABS,
             _ => TimeoutType::Default,
         }
+    }
+}
+
+type TimeoutCallBack = timeout_cb;
+
+impl TimeoutCallBack {
+    pub fn new<T>(callback: extern "C" fn(arg: *mut c_void), arg: *mut T) -> Self {
+        let fn_ptr = Some(callback);
+        TimeoutCallBack {
+            fn_ptr,
+            arg: arg as *mut c_void,
+        }
+    }
+
+    pub fn call(&self) -> bool {
+        if let Some(callback) = self.fn_ptr {
+            callback(self.arg);
+            return true;
+        }
+        return false;
     }
 }
 
@@ -71,6 +91,12 @@ impl Timeout {
         *self.registered.borrow_mut() = flag;
     }
 
+    pub fn set_cb(&self, cb: TimeoutCallBack) {
+        unsafe {
+            (*self.raw.as_ptr()).callback = cb;
+        }
+    }
+
     /// return true if timeout is registered and on timing wheel
     pub fn is_pending(&self) -> bool {
         self.registered.borrow().clone() && unsafe { timeout_pending(self.get_raw()) }
@@ -85,6 +111,11 @@ impl Timeout {
     pub fn delete(&self) {
         unsafe { timeout_del(self.get_raw()) };
     }
+
+    pub fn run_cb(&self) -> bool {
+        let cb = unsafe { (*self.raw.as_ptr()).callback };
+        return cb.call();
+    }
 }
 
 impl Drop for Timeout {
@@ -94,7 +125,7 @@ impl Drop for Timeout {
         }
         // use libc::free timeout instance
         unsafe {
-            let raw_ptr = self.raw.as_ptr() as *mut std::ffi::c_void;
+            let raw_ptr = self.raw.as_ptr() as *mut c_void;
             free(raw_ptr);
         }
     }
@@ -133,10 +164,19 @@ pub struct TimeoutSIt {
 impl TimeoutSIt {
     /// flag has 4 value: PENDING, EXPIRED, ALL, CLEAR
     fn new(flags: TimeoutSItFlag) -> Result<TimeoutSIt, &'static str> {
-        let mut instance = Box::into_raw(Box::new(timeouts_it::default()));
+        let instance = Box::into_raw(Box::new(timeouts_it::default()));
         TIMEOUTS_IT_INIT(instance, flags as i32);
         let raw = NonNull::new(instance).ok_or("Failed to create TimeoutSIt")?;
         Ok(TimeoutSIt { raw })
+    }
+}
+
+impl Drop for TimeoutSIt {
+    fn drop(&mut self) {
+        unsafe {
+            let raw_ptr = self.raw.as_ptr() as *mut c_void;
+            free(raw_ptr);
+        }
     }
 }
 
@@ -191,14 +231,11 @@ impl TimeoutManager {
         unsafe { timeouts_hz(self.get_raw()) }
     }
     /// return interval to next required update
+    /// careful for two case:
+    /// - return value could be u64::MAX, it means no timeout
+    /// - return value will always be less than next timeout
     pub fn get_next_wait_time(&mut self) -> timeout_t {
-        let t = unsafe { timeouts_timeout(self.get_raw()) };
-        // timeouts_timeout 取到一定程度会返回 u64 最大值
-        if t == u64::MAX {
-            0
-        } else {
-            t
-        }
+        unsafe { timeouts_timeout(self.get_raw()) }
     }
     /// return true if any timeouts pending on timing wheel
     pub fn any_pending(&mut self) -> bool {
@@ -289,6 +326,15 @@ mod tests {
         tos.update_time_int(10); // tos.now = 109
         assert!(!timeout.is_pending());
         assert!(timeout.is_expired());
+
+        extern "C" fn rust_callback(arg: *mut c_void) {
+            let value = unsafe { *(arg as *mut i32) };
+            println!("Callback executed with arg: {}", value);
+        }
+        let arg: i32 = 42;
+        let callback = TimeoutCallBack::new(rust_callback, &arg as *const _ as *mut c_void);
+        timeout.set_cb(callback);
+        assert!(timeout.run_cb());
     }
 
     #[test]
@@ -314,5 +360,28 @@ mod tests {
     fn test_timeout_sit_new() {
         let sit = TimeoutSIt::new(TimeoutSItFlag::PENDING);
         assert!(sit.is_ok());
+    }
+
+    #[test]
+    fn test_timeout_manger() {
+        let mut tos = TimeoutManager::new(TIMEOUT_mHZ).unwrap();
+        assert_eq!(tos.get_hz(), TIMEOUT_mHZ);
+        assert!(tos.check());
+
+        tos.update_time_abs(0);
+        assert_eq!(tos.get_next_wait_time(), u64::MAX); // no timeout wait, so wait time is u64::MAX
+
+        let timeout = Timeout::new(TimeoutType::Default).unwrap(); // relative timeout
+        tos.add(&timeout, 100); // expired time = tos.now + 100
+
+        tos.update_time_abs(30);
+        assert!(tos.any_pending());
+        assert!(!tos.any_expired());
+        assert!(tos.get_next_wait_time() < 70);
+
+        tos.update_time_abs(100);
+        assert!(!tos.any_pending());
+        assert!(tos.any_expired());
+        assert_eq!(tos.get_next_wait_time(), 0);
     }
 }
