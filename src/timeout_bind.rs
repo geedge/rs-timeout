@@ -1,6 +1,6 @@
 use std::ptr::null_mut;
 
-use libc::{c_char, c_int, c_uint, c_void, FILE, c_ulonglong};
+use libc::{c_char, c_int, c_uint, c_ulonglong, c_void, FILE};
 
 // TODO 检查条件编译选项
 // 目前暂时全部注释掉
@@ -12,7 +12,6 @@ pub const TIMEOUT_V_REL: u32 = 538313254;
 pub const TIMEOUT_V_ABI: u32 = 538313252;
 pub const TIMEOUT_V_API: u32 = 538313254;
 
-
 extern "C" {
     pub fn timeout_version() -> c_int;
     pub fn timeout_vendor() -> *const c_char;
@@ -23,16 +22,17 @@ extern "C" {
 
 /// I N T E G E R  T Y P E  I N T E R F A C E S
 
-// TODO 原为宏定义, 使用静态变量代替 需进一步检查
-pub const TIMEOUT_PRIu: &[u8; 2] = b"lu"; // C 语言字符串结尾 `\0`, rust 没有
-pub const TIMEOUT_PRIx: &[u8; 2] = b"lx";
-pub const TIMEOUT_PRIX: &[u8; 2] = b"lX";
+// 原为宏定义, 使用静态变量代替 ~~需进一步检查~~
+// test-timeout.c 测试通过
+pub const TIMEOUT_PRIu: &[u8; 3] = b"lu\0"; // C 语言字符串结尾 `\0`, rust 没有
+pub const TIMEOUT_PRIx: &[u8; 3] = b"lx\0";
+pub const TIMEOUT_PRIX: &[u8; 3] = b"lX\0";
 
 pub const TIMEOUT_mHZ: u64 = 1000;
 pub const TIMEOUT_uHZ: u64 = 1000000;
 pub const TIMEOUT_nHZ: u64 = 1000000000;
 
-pub type timeout_t = c_ulonglong;
+pub type timeout_t = u64;
 pub type timeout_error_t = usize;
 
 /// C A L L B A C K  I N T E R F A C E
@@ -51,6 +51,7 @@ pub struct timeout_cb {
 /// T I M E O U T  I N T E R F A C E S
 
 // #[cfg(TIMEOUT_DISABLE_INTERVALS)]
+pub const TIMEOUT_DEFAULT: i32 = 0;
 pub const TIMEOUT_INT: i32 = 1;
 pub const TIMEOUT_ABS: i32 = 2;
 
@@ -99,7 +100,6 @@ impl Default for timeout {
     }
 }
 
-
 extern "C" {
     /* initialize timeout structure (same as TIMEOUT_INITIALIZER) */
     pub fn timeout_init(arg1: *mut timeout, arg2: c_int) -> *mut timeout;
@@ -132,13 +132,12 @@ pub type wheel_t = u64;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct timeouts {
-    pub wheel: [[timeout_list; WHEEL_LEN]; WHEEL_NUM],
-    pub expired: timeout_list,
-    pub pending: [wheel_t; WHEEL_NUM],
-    pub curtime: timeout_t,
-    pub hertz: timeout_t,
+    // pub wheel: [[timeout_list; WHEEL_LEN]; WHEEL_NUM],
+    // pub expired: timeout_list,
+    // pub pending: [wheel_t; WHEEL_NUM],
+    // pub curtime: timeout_t,
+    // pub hertz: timeout_t,
 }
-
 
 extern "C" {
     /* open a new timing wheel, setting optional HZ (for float conversions) */
@@ -164,7 +163,7 @@ extern "C" {
     /* return true if any timeouts on expired queue */
     pub fn timeouts_expired(arg1: *mut timeouts) -> bool;
     /* return true if invariants hold. describes failures to optional file handle. */
-    // TODO check FILE type
+    // arg2 use stderr is normal
     pub fn timeouts_check(arg1: *mut timeouts, arg2: *mut FILE) -> bool;
 }
 
