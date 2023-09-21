@@ -12,6 +12,7 @@ use libc::{c_void, free};
 use crate::timeout_bind::*;
 
 /// timeout flag: relative time or absolute time, default relative time
+/// it could use as i32
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TimeoutType {
     INT = TIMEOUT_INT as isize,         // relative time
@@ -383,5 +384,9 @@ mod tests {
         assert!(!tos.any_pending());
         assert!(tos.any_expired());
         assert_eq!(tos.get_next_wait_time(), 0);
+
+        let timeout2 = tos.next_expired_timeout();
+        let b = timeout2.is_some();
+        assert!(timeout2.is_some());
     }
 }
