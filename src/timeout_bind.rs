@@ -1,7 +1,7 @@
+#![allow(non_upper_case_globals)] // allow snake case just in this file
 use std::ptr::null_mut;
 
 use libc::{c_char, c_int, c_uint, c_ulonglong, c_void, FILE};
-
 // TODO 检查条件编译选项
 // 目前暂时全部注释掉
 
@@ -55,7 +55,7 @@ pub const TIMEOUT_DEFAULT: i32 = 0;
 pub const TIMEOUT_INT: i32 = 1;
 pub const TIMEOUT_ABS: i32 = 2;
 
-// TODO 宏定义 TIMEOUT_INITIALIZER timeout_setcb
+// 宏定义 TIMEOUT_INITIALIZER timeout_setcb
 
 // 来自 TAILQ_ENTRY 宏
 #[repr(C)]
@@ -66,7 +66,7 @@ pub struct timeout_TAILQ_ENTRY {
 }
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 pub struct timeout {
     pub flags: c_int,
     pub expires: timeout_t,         /* absolute expiration time */
