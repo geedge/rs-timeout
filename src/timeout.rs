@@ -134,7 +134,7 @@ pub enum TimeoutSItFlag {
     PENDING = TIMEOUTS_PENDING as isize,
     EXPIRED = TIMEOUTS_EXPIRED as isize,
     ALL = TIMEOUTS_ALL as isize,
-    CLEAR = TIMEOUTS_CLEAR as isize,
+    // CLEAR = TIMEOUTS_CLEAR as isize,
 }
 // as i32
 impl From<TimeoutSItFlag> for i32 {
@@ -210,7 +210,6 @@ impl TimeoutManager {
     }
 
     fn update_time(&mut self, time: timeout_t, timeout_type: TimeoutType) {
-        let tmp = self.get_raw();
         match timeout_type {
             TimeoutType::INT => unsafe { timeouts_step(self.get_raw(), time) },
             TimeoutType::ABS => unsafe { timeouts_update(self.get_raw(), time) },
@@ -352,17 +351,14 @@ mod tests {
         let pending = TimeoutSItFlag::PENDING;
         let expired = TimeoutSItFlag::EXPIRED;
         let all = TimeoutSItFlag::ALL;
-        let clear = TimeoutSItFlag::CLEAR;
 
         assert_eq!(i32::from(pending), TIMEOUTS_PENDING);
         assert_eq!(i32::from(expired), TIMEOUTS_EXPIRED);
         assert_eq!(i32::from(all), TIMEOUTS_ALL);
-        assert_eq!(i32::from(clear), TIMEOUTS_CLEAR);
 
         assert_eq!(TimeoutSItFlag::new(TIMEOUTS_PENDING), pending);
         assert_eq!(TimeoutSItFlag::new(TIMEOUTS_EXPIRED), expired);
         assert_eq!(TimeoutSItFlag::new(TIMEOUTS_ALL), all);
-        assert_eq!(TimeoutSItFlag::new(TIMEOUTS_CLEAR), clear);
         assert_eq!(TimeoutSItFlag::new(123), all);
     }
 
@@ -374,28 +370,56 @@ mod tests {
 
     #[test]
     fn test_timeout_manger() {
-        // let mut tos = TimeoutManager::new(TIMEOUT_mHZ).unwrap();
-        // assert_eq!(tos.get_hz(), TIMEOUT_mHZ);
-        // assert!(tos.check());
+        let mut tos = TimeoutManager::new(TIMEOUT_mHZ).unwrap();
+        assert_eq!(tos.get_hz(), TIMEOUT_mHZ);
+        assert!(tos.check());
 
-        // tos.update_time_abs(0);
-        // assert_eq!(tos.get_next_wait_time(), u64::MAX); // no timeout wait, so wait time is u64::MAX
+        tos.update_time_abs(0);
+        assert_eq!(tos.get_next_wait_time(), u64::MAX); // no timeout wait, so wait time is u64::MAX
 
-        // let timeout = Timeout::new(TimeoutType::Default).unwrap(); // relative timeout
-        // tos.add(&timeout, 100); // expired time = tos.now + 100
+        let timeout = Timeout::new(TimeoutType::Default).unwrap(); // relative timeout
+        tos.add(timeout, 100); // expired time = tos.now + 100
 
-        // tos.update_time_abs(30);
-        // assert!(tos.any_pending());
-        // assert!(!tos.any_expired());
-        // assert!(tos.get_next_wait_time() < 70);
+        let tos_it = TimeoutSIt::new(TimeoutSItFlag::PENDING).unwrap();
+        let to = tos.next_timeout(&tos_it);
+        let to = to.unwrap();
 
-        // tos.update_time_abs(100);
-        // assert!(!tos.any_pending());
-        // assert!(tos.any_expired());
-        // assert_eq!(tos.get_next_wait_time(), 0);
+        tos.update_time_abs(30);
+        assert!(tos.any_pending());
+        assert!(!tos.any_expired());
+        assert!(tos.get_next_wait_time() < 70);
 
-        // let timeout2 = tos.next_expired_timeout();
-        // let b = timeout2.is_some();
-        // assert!(timeout2.is_some());
+        assert!(to.is_pending());
+        assert!(!to.is_expired());
+
+        tos.update_time_abs(100);
+        assert!(!tos.any_pending());
+        assert!(tos.any_expired());
+        assert_eq!(tos.get_next_wait_time(), 0);
+
+        tos.update_time_abs(150);
+
+        assert!(!to.is_pending());
+        assert!(to.is_expired());
+
+        let timeout2 = tos.expired_timeout();
+        assert!(timeout2.is_some());
+    }
+
+    #[test]
+    #[allow(unused_variables)]
+    fn test_callback() {
+        let mut timeout = Timeout::new(TimeoutType::Default).unwrap(); // relative timeout
+        // callback
+        extern "C" fn rust_callback(arg: *mut c_void) {
+            let value = unsafe { *(arg as *mut &str) };
+            println!("Callback executed with arg: {}", value);
+        }
+        let mut arg = "hello world";
+        let callback = TimeoutCallBack::new(rust_callback, &arg as *const _ as *mut c_void);
+        timeout.set_cb(callback);
+        timeout.run_cb();
+        arg = "hello rust";
+        timeout.run_cb();
     }
 }
