@@ -40,18 +40,41 @@ impl TimeoutType {
     }
 }
 
-type TimeoutCallBack = timeout_cb; // callback
+#[repr(C)]
+#[derive(Debug)]
+pub struct TimeoutCallBack<'a, T> {
+    pub fn_ptr: Option<extern "C" fn(arg: &mut T)>,
+    pub arg: &'a mut T,
+}
 
-impl TimeoutCallBack {
-    pub fn new<T>(callback: extern "C" fn(arg: *mut c_void), arg: *mut T) -> Self {
-        let fn_ptr = Some(callback);
-        TimeoutCallBack {
-            fn_ptr,
-            arg: arg as *mut c_void,
+/// TimeoutCallBack<T> -> timeout_cb
+impl<T> From<TimeoutCallBack<'_, T>> for timeout_cb {
+    fn from(timeout_cb: TimeoutCallBack<T>) -> Self {
+        timeout_cb {
+            fn_ptr: timeout_cb.fn_ptr.map(|f| unsafe { std::mem::transmute(f) }),
+            arg: timeout_cb.arg as *mut T as *mut c_void,
         }
     }
+}
+
+// type TimeoutCallBack = timeout_cb; // callback
+impl<'a, T> TimeoutCallBack<'a, T> {
+    pub fn new(callback: extern "C" fn(arg: &mut T), arg: &'a mut T) -> Self {
+        let fn_ptr = Some(callback);
+        TimeoutCallBack { fn_ptr, arg }
+    }
     /// run callback, if callback is None, return false
-    pub fn call(&self) -> bool {
+    pub fn call(&mut self) -> bool {
+        if let Some(callback) = self.fn_ptr {
+            callback(&mut self.arg);
+            return true;
+        }
+        false
+    }
+}
+
+impl timeout_cb {
+    fn call(&self) -> bool {
         if let Some(callback) = self.fn_ptr {
             callback(self.arg);
             return true;
@@ -80,8 +103,8 @@ impl Timeout {
         *unsafe { Box::from_raw(to) }
     }
     /// set callback
-    pub fn set_cb(&mut self, cb: TimeoutCallBack) {
-        self.callback = cb;
+    pub fn set_cb<T>(&mut self, cb: TimeoutCallBack<T>) {
+        self.callback = cb.into();
     }
 
     /// return true if timeout is registered and on timing wheel
@@ -496,19 +519,19 @@ mod tests {
         assert!(timeout2.is_some());
     }
 
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct Session {
+        pub session_id: String,
+    }
+    impl Drop for Session {
+        fn drop(&mut self) {
+            println!("drop session: {}", self.session_id);
+        }
+    }
+
     #[test]
     #[allow(unused_variables)]
     fn test_callback() {
-        #[derive(Clone, Debug, PartialEq, Eq)]
-        pub struct Session {
-            pub session_id: String,
-        }
-        impl Drop for Session {
-            fn drop(&mut self) {
-                println!("drop session: {}", self.session_id);
-            }
-        }
-
         // // callback
         // extern "C" fn rust_callback(arg: *mut c_void) {
         //     let value = unsafe { *(arg as *mut i32) };
@@ -565,8 +588,8 @@ mod tests {
             // GET RFE COUNT FOROM S2
             println!("s2_ref count: {}", Rc::strong_count(&s2_ref));
 
-            let callback = TimeoutCallBack::new(rust_callback2, arg2 as *const _ as *mut c_void);
-            timeout.set_cb(callback);
+            // let callback = TimeoutCallBack::new(rust_callback2, arg2 as *const _ as *mut c_void);
+            // timeout.set_cb(callback);
         }
 
         // timeout.set_cb(callback);
@@ -577,5 +600,32 @@ mod tests {
         println!("aaaa");
         // timeout.run_cb();
         // println!("s2_ref count: {}", Rc::strong_count(&s2_ref));
+    }
+    #[test]
+    #[allow(unused_variables)]
+    fn test_cb2() {
+        let mut timeout = Timeout::new(TimeoutType::Default).unwrap();
+
+        extern "C" fn rust_callback2(arg: &mut i32) {
+            println!("Callback executed with arg: {}", arg);
+        }
+        let mut binding = 11;
+        let cb = TimeoutCallBack::new(rust_callback2, &mut binding);
+        timeout.set_cb(cb);
+        timeout.run_cb();
+
+        extern "C" fn rust_callback3(arg: &mut Rc<RefCell<Session>>) {
+            let value = arg.borrow();
+            println!("Callback executed with session_id: {}", value.session_id);
+        }
+
+        let session = Session {
+            session_id: "123".to_string(),
+        };
+        let session_ref = Rc::new(RefCell::new(session));
+        let mut binding = session_ref.clone();
+        let cb = TimeoutCallBack::new(rust_callback3, &mut binding);
+        timeout.set_cb(cb);
+        timeout.run_cb();
     }
 }
