@@ -11,13 +11,16 @@ use libc::{c_void, free};
 
 use crate::timeout_bind::*;
 
-/// timeout flag: relative time or absolute time, default relative time
-/// it could use as i32
+/// timeout type:
+/// - INT: Periodic timeout, start time only supports relative time.
+/// - ABS: Executed only once, start time is absolute time.
+/// - Default: Executed only once, start time is relative time
+/// TimeoutType could use as i32
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TimeoutType {
-    INT = TIMEOUT_INT as isize,         // relative time
-    ABS = TIMEOUT_ABS as isize,         // absolute time
-    Default = TIMEOUT_DEFAULT as isize, // relative time
+    INT = TIMEOUT_INT as isize,         // periodic timeout, relative time
+    ABS = TIMEOUT_ABS as isize,         // onetime timeout, absolute time
+    Default = TIMEOUT_DEFAULT as isize, // onetime timeout, relative time
 }
 // as i32
 impl From<TimeoutType> for i32 {
@@ -37,7 +40,7 @@ impl TimeoutType {
     }
 }
 
-type TimeoutCallBack = timeout_cb;
+type TimeoutCallBack = timeout_cb; // callback
 
 impl TimeoutCallBack {
     pub fn new<T>(callback: extern "C" fn(arg: *mut c_void), arg: *mut T) -> Self {
@@ -47,7 +50,7 @@ impl TimeoutCallBack {
             arg: arg as *mut c_void,
         }
     }
-
+    /// run callback, if callback is None, return false
     pub fn call(&self) -> bool {
         if let Some(callback) = self.fn_ptr {
             callback(self.arg);
@@ -58,12 +61,6 @@ impl TimeoutCallBack {
 }
 
 type Timeout = timeout;
-
-// pub struct Timeout {
-//     // raw: Box<timeout>, // raw pointer
-//     raw: NonNull<timeout>,
-//     registered: Rc<RefCell<bool>>,
-// }
 
 impl Timeout {
     pub fn new(flags: TimeoutType) -> Result<Timeout, &'static str> {
@@ -82,7 +79,7 @@ impl Timeout {
     pub fn transfer(to: *mut timeout) -> Timeout {
         *unsafe { Box::from_raw(to) }
     }
-
+    /// set callback
     pub fn set_cb(&mut self, cb: TimeoutCallBack) {
         self.callback = cb;
     }
@@ -110,6 +107,11 @@ impl Timeout {
             return true;
         }
         false
+    }
+    /// return true if timeout is periodic
+    pub fn is_periodic(&self) -> bool {
+        // if ((to->flags & TIMEOUT_INT) && to->interval > 0)
+        return (self.flags & TIMEOUT_INT != 0) && (self.interval > 0);
     }
 
     /// remove timeout from any timing wheel or expired queue (okay if on neither)
@@ -161,7 +163,7 @@ pub struct TimeoutSIt {
 }
 
 impl TimeoutSIt {
-    /// flag has 4 value: PENDING, EXPIRED, ALL, CLEAR
+    /// flag has 3 value: PENDING, EXPIRED, ALL
     fn new(flags: TimeoutSItFlag) -> Result<TimeoutSIt, &'static str> {
         let instance = Box::into_raw(Box::new(timeouts_it::default()));
         TIMEOUTS_IT_INIT(instance, flags as i32);
@@ -177,6 +179,12 @@ impl Drop for TimeoutSIt {
             free(raw_ptr);
         }
     }
+}
+
+/// expired timeout return type
+pub enum TOR {
+    OneTime(Timeout),           // instance ownership from C side to rust
+    Periodic(&'static Timeout), // instance ownership still on C side
 }
 
 // TimeoutManager
@@ -251,29 +259,52 @@ impl TimeoutManager {
 
 impl TimeoutManager {
     /// add Timeout to timing wheel
+    /// Timeout type:
+    /// - INT: first expired on now + timeout, then expired at now + timeout + timeout + ...
+    ///        even if it's expired,TimeoutManger will not auto renew it. must consume it use expired_timeouts.
+    /// - ABS: expired on timeout, then expired only once.
+    /// - Default: first expired on now + timeout, then expired only once.
     /// Pass in ownership of the Timeout object
-    pub fn add(&mut self, to: Timeout, time: timeout_t) {
+    pub fn add(&mut self, to: Timeout, timeout: timeout_t) {
         let to_ptr = Box::into_raw(Box::new(to));
-        unsafe { timeouts_add(self.get_raw(), to_ptr, time) };
+        unsafe { timeouts_add(self.get_raw(), to_ptr, timeout) };
     }
     /// remove Timeout from any timing wheel or expired queue (okay if on neither)
     /// No ownership of the Timeout object is passed in
     pub fn delete(&mut self, to: &mut Timeout) {
         unsafe { timeouts_del(self.get_raw(), to) };
     }
+
+    /// consume expired timeout
     /// return next expired timeout, or NULL if none
-    /// Ownership of timeout objects moved from C to rust
-    pub fn expired_timeout(&mut self) -> Option<Timeout> {
+    /// TOR::OneTime: Ownership of timeout objects moved from C to rust
+    ///               all pending/expired flag has cleared.
+    /// TOR::Periodic: Ownership still on C side
+    pub(crate) fn expired_timeout<'a>(&'a mut self) -> Option<TOR> {
         let to_ptr: *mut timeout = unsafe { timeouts_get(self.get_raw()) };
         if to_ptr.is_null() {
             return None;
         }
-        return Some(Timeout::transfer(to_ptr));
+        if unsafe { (*to_ptr).is_periodic() } {
+            return Some(TOR::Periodic(unsafe { &*to_ptr }));
+        }
+        return Some(TOR::OneTime(Timeout::transfer(to_ptr)));
+        // return Some(Timeout::transfer(to_ptr));
+    }
+    /// return next expired timeout iterator
+    pub fn expired_timeouts(&mut self) -> ToMIterExpire {
+        ToMIterExpire {
+            timeout_manager: self,
+        }
     }
     /// return next quote of timeout as timeout_sit requested, or NULL if none
     /// No ownership of the Timeout object is passed in from C to rust
+    /// No consume any timeout
     //
-    pub fn next_timeout<'a, 'b>(&'a mut self, timeout_sit: &'b TimeoutSIt) -> Option<&'b Timeout> {
+    pub(crate) fn next_timeout<'a, 'b>(
+        &'a mut self,
+        timeout_sit: &'b TimeoutSIt,
+    ) -> Option<&'b Timeout> {
         let to_ptr: *mut timeout =
             unsafe { timeouts_next(self.get_raw(), timeout_sit.raw.as_ptr()) };
         if to_ptr.is_null() {
@@ -281,11 +312,41 @@ impl TimeoutManager {
         }
         return Some(unsafe { &*to_ptr });
     }
+    /// return next timeout quote iterator(as requested by timeout_sit)
+    pub fn next_timeouts<'a>(&'a mut self, timeout_sit: &'a TimeoutSIt) -> ToMIterNext<'a> {
+        ToMIterNext {
+            timeout_manager: self,
+            timeout_sit,
+        }
+    }
 }
 
 impl Drop for TimeoutManager {
     fn drop(&mut self) {
         self.close();
+    }
+}
+
+pub struct ToMIterExpire<'a> {
+    timeout_manager: &'a mut TimeoutManager,
+}
+
+impl<'a> Iterator for ToMIterExpire<'a> {
+    type Item = TOR;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.timeout_manager.expired_timeout()
+    }
+}
+
+pub struct ToMIterNext<'a> {
+    timeout_manager: &'a mut TimeoutManager,
+    timeout_sit: &'a TimeoutSIt,
+}
+
+impl<'a> Iterator for ToMIterNext<'a> {
+    type Item = &'a Timeout;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.timeout_manager.next_timeout(self.timeout_sit)
     }
 }
 
@@ -310,26 +371,22 @@ mod tests {
 
     #[test]
     fn test_timeout() {
-        let mut timeout = Timeout::new(TimeoutType::Default).unwrap(); // relative timeout
-        assert!(!timeout.is_pending());
-        assert!(!timeout.is_expired());
+        let to = Timeout::new(TimeoutType::Default).unwrap(); // relative timeout
+        assert!(!to.is_pending());
+        assert!(!to.is_expired());
 
-        // callback
-        extern "C" fn rust_callback(arg: *mut c_void) {
-            let value = unsafe { *(arg as *mut i32) };
-            println!("Callback executed with arg: {}", value);
-        }
-        let arg: i32 = 42;
-        let callback = TimeoutCallBack::new(rust_callback, &arg as *const _ as *mut c_void);
-        timeout.set_cb(callback);
+        let to2 = Timeout::new(TimeoutType::INT).unwrap(); // relative timeout
+        assert!(!to2.is_pending());
+        assert!(!to2.is_expired());
 
         let mut tos = TimeoutManager::new(TIMEOUT_mHZ).unwrap();
         tos.update_time_int(0); // tos.now = 0
-        tos.add(timeout, 100); // expired time = tos.now + 100
+        tos.add(to, 100); // onetime, expired time = tos.now + 100
+        tos.add(to2, 100); // periodic
 
         let tos_it = TimeoutSIt::new(TimeoutSItFlag::PENDING).unwrap();
-        let to = tos.next_timeout(&tos_it);
-        let to = to.unwrap();
+        let to = tos.next_timeout(&tos_it).unwrap();
+        let to2 = tos.next_timeout(&tos_it).unwrap();
 
         tos.update_time_int(1); // tos.now = 1
         assert!(to.is_pending());
@@ -340,10 +397,43 @@ mod tests {
         assert!(!to.is_expired());
 
         tos.update_time_int(10); // tos.now = 109
-        assert!(!to.is_pending());
-        assert!(to.is_expired());
 
-        assert!(to.run_cb());
+        let tos_it = TimeoutSIt::new(TimeoutSItFlag::EXPIRED).unwrap();
+        for to in tos.next_timeouts(&tos_it) {
+            assert!(!to.is_pending());
+            assert!(to.is_expired());
+        }
+
+        for to in tos.expired_timeouts() {
+            match to {
+                TOR::OneTime(temp) => {
+                    // all flag has cleared
+                    // assert!(to.is_expired());
+                }
+                TOR::Periodic(temp) => {
+                    assert!(temp.is_periodic()); // next expired time = 200
+                }
+            };
+        }
+
+        tos.update_time_int(110); // tos.now = 219
+
+        let mut temp_flag = false;
+
+        for to in tos.expired_timeouts() {
+            match to {
+                TOR::OneTime(temp) => {
+                    // all flag has cleared
+                    // assert!(to.is_expired());
+                }
+                TOR::Periodic(temp) => {
+                    assert!(temp.is_periodic());
+                    temp_flag = true;
+                }
+            };
+        }
+
+        assert!(temp_flag);
     }
 
     #[test]
@@ -419,6 +509,15 @@ mod tests {
             }
         }
 
+        // // callback
+        // extern "C" fn rust_callback(arg: *mut c_void) {
+        //     let value = unsafe { *(arg as *mut i32) };
+        //     println!("Callback executed with arg: {}", value);
+        // }
+        // let arg: i32 = 42;
+        // let callback = TimeoutCallBack::new(rust_callback, &arg as *const _ as *mut c_void);
+        // timeout.set_cb(callback);
+
         let mut timeout = Timeout::new(TimeoutType::Default).unwrap(); // relative timeout
                                                                        // callback
                                                                        // extern "C" fn rust_callback(arg: *mut c_void) {
@@ -446,15 +545,23 @@ mod tests {
 
             println!("rust_callback2 count: {}", Rc::strong_count(value));
 
-            let value = value.borrow();
-            println!("Callback executed with arg: {}", value.session_id);
+            // let value = value.borrow();
+            println!("Callback executed with arg: {}", value.borrow().session_id);
+            drop(value);
+            // println!("rust_callback2 count: {}", Rc::strong_count(value));
         }
+
         {
             let s2 = Session {
                 session_id: "2123".to_string(),
             };
             let s2_ref = Rc::new(RefCell::new(s2));
-            let arg2 = &mut s2_ref.clone();
+            // let arg3 = Rc::clone(&s2_ref);
+            // let arg2 = &mut s2_ref.clone();
+            // let arg2 = Rc::into_raw(s2_ref.clone());
+
+            let arg2 = Box::into_raw(Box::new(s2_ref.clone()));
+
             // GET RFE COUNT FOROM S2
             println!("s2_ref count: {}", Rc::strong_count(&s2_ref));
 
@@ -469,5 +576,6 @@ mod tests {
         // timeout.run_cb();
         println!("aaaa");
         // timeout.run_cb();
+        // println!("s2_ref count: {}", Rc::strong_count(&s2_ref));
     }
 }
