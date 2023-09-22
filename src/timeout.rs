@@ -409,17 +409,65 @@ mod tests {
     #[test]
     #[allow(unused_variables)]
     fn test_callback() {
-        let mut timeout = Timeout::new(TimeoutType::Default).unwrap(); // relative timeout
-        // callback
-        extern "C" fn rust_callback(arg: *mut c_void) {
-            let value = unsafe { *(arg as *mut &str) };
-            println!("Callback executed with arg: {}", value);
+        #[derive(Clone, Debug, PartialEq, Eq)]
+        pub struct Session {
+            pub session_id: String,
         }
-        let mut arg = "hello world";
-        let callback = TimeoutCallBack::new(rust_callback, &arg as *const _ as *mut c_void);
-        timeout.set_cb(callback);
+        impl Drop for Session {
+            fn drop(&mut self) {
+                println!("drop session: {}", self.session_id);
+            }
+        }
+
+        let mut timeout = Timeout::new(TimeoutType::Default).unwrap(); // relative timeout
+                                                                       // callback
+                                                                       // extern "C" fn rust_callback(arg: *mut c_void) {
+                                                                       //     let value: Box<Rc<RefCell<Session>>> =
+                                                                       //         unsafe { Box::from_raw(arg as *mut Rc<RefCell<Session>>) };
+
+        //     let value = value.borrow();
+        //     println!("Callback executed with arg: {}", value.session_id);
+        // }
+
+        // let session = Session {
+        //     session_id: "123".to_string(),
+        // };
+        // let session_ref = Rc::new(RefCell::new(session));
+        // let arg = Box::into_raw(Box::new(session_ref.clone()));
+
+        // let callback = TimeoutCallBack::new(rust_callback, arg as *const _ as *mut c_void);
+        // timeout.set_cb(callback);
+        // session_ref.borrow_mut().session_id = "456".to_string();
+        // timeout.run_cb();
+
+        extern "C" fn rust_callback2(arg: *mut c_void) {
+            let value = arg as *mut Rc<RefCell<Session>>;
+            let value = unsafe { &mut *value };
+
+            println!("rust_callback2 count: {}", Rc::strong_count(value));
+
+            let value = value.borrow();
+            println!("Callback executed with arg: {}", value.session_id);
+        }
+        {
+            let s2 = Session {
+                session_id: "2123".to_string(),
+            };
+            let s2_ref = Rc::new(RefCell::new(s2));
+            let arg2 = &mut s2_ref.clone();
+            // GET RFE COUNT FOROM S2
+            println!("s2_ref count: {}", Rc::strong_count(&s2_ref));
+
+            let callback = TimeoutCallBack::new(rust_callback2, arg2 as *const _ as *mut c_void);
+            timeout.set_cb(callback);
+        }
+
+        // timeout.set_cb(callback);
         timeout.run_cb();
-        arg = "hello rust";
-        timeout.run_cb();
+
+        // s2_ref.borrow_mut().session_id = "2456".to_string();
+        // timeout.run_cb();
+        println!("aaaa");
+        // timeout.run_cb();
     }
 }
