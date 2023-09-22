@@ -1,8 +1,8 @@
 use libc::free;
 use rand::Rng;
 
-use crate::timeout_bind::timeout_version;
-use crate::timeout_bind::*;
+use rs_timeout::timeout_bind::timeout_version;
+use rs_timeout::timeout_bind::*;
 use std::{
     ffi::CStr,
     io::{self, Write},
@@ -560,7 +560,7 @@ fn check_intervals(cfg: &intervals_cfg) -> bool {
     }
 
     unsafe { timeouts_update(tos.unwrap(), now) }; // 时钟行进到 now
-    // test-timeout.c line 300
+                                                   // test-timeout.c line 300
     for i in 0..cfg.n_timeouts {
         // 初始化 按照绝对时间 计算超时
         if &t[i] as *const _ != unsafe { timeout_init(&mut t[i], TIMEOUT_INT) } as *const _ {
@@ -583,7 +583,7 @@ fn check_intervals(cfg: &intervals_cfg) -> bool {
     // test-timeout.c line 315
     while now < cfg.end_at {
         let mut delay = unsafe { timeouts_timeout(tos.unwrap()) }; // 触发下一个 超时事件 最小时间间隔
-        // 有 跳过间歇 且 delay < 间歇
+                                                                   // 有 跳过间歇 且 delay < 间歇
         if (cfg.skip != 0) && (delay < cfg.skip) {
             delay = cfg.skip; // delay = 间歇
         }
@@ -591,7 +591,7 @@ fn check_intervals(cfg: &intervals_cfg) -> bool {
         now += delay; // 时间流逝
 
         loop {
-            let to = unsafe { timeouts_get(tos.unwrap()) }; // 
+            let to = unsafe { timeouts_get(tos.unwrap()) }; //
             if to.is_null() {
                 break;
             }
